@@ -27,3 +27,23 @@ export interface GetClientDto {
   name?: string
   email?: string
 }
+
+export interface UpdateClientDto {
+  name: string
+  cedula: string
+  address: string
+  birthDate: string
+  email: string
+  phone: string
+  phone2?: string
+  profileImage?: string
+  credentials: {
+    username: string
+    password: string
+  }
+  bankAccounts: {
+    bankName: string
+    accountNumber: string
+    accountType: string
+  }[]
+}

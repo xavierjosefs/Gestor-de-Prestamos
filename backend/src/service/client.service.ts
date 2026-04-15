@@ -1,6 +1,6 @@
 import prisma from '../prisma/prisma.js';
 import { encrypt } from '../utils/encryption.js';
-import type { CreateClientDto, GetClientDto } from '../dto/client.dto.js';
+import type { CreateClientDto, GetClientDto, UpdateClientDto } from '../dto/client.dto.js';
 import { isValidPhone } from '../utils/validators/phone.js';
 import { decrypt } from '../utils/encryption.js';
 import { Prisma } from '@prisma/client';
@@ -92,11 +92,18 @@ export const createClient = async (data: CreateClientDto) => {
 
 export const getClient = async (data: GetClientDto) => {
     const { cedula, name, email } = data;
-    const orConditions = [];
+    const orConditions: Prisma.ClientWhereInput[] = [];
 
     if (cedula) orConditions.push({ cedula });
     if (email) orConditions.push({ email });
-    if (name) orConditions.push({ name });
+    if (name) {
+        orConditions.push({
+            name: {
+                contains: name,
+                mode: "insensitive"
+            }
+        });
+    }
 
     if (orConditions.length === 0) {
         throw new Error("At least one filter is required");
@@ -118,16 +125,70 @@ export const getClient = async (data: GetClientDto) => {
     return client;
 }
 
-export const getAllClients = async() => {
-    const clients = await prisma.client.findMany({
+export const getClientById = async (id: string) => {
+    const client = await prisma.client.findUnique({
+        where: { id },
         include: {
             bankAccounts: true,
             credentials: true
-        },
-        orderBy: {
-            createdAt: "desc"
         }
     });
+
+    if (!client) {
+        throw new Error("Client not found");
+    }
+
+    if (client.credentials) {
+        client.credentials.password = decrypt(client.credentials.password);
+    }
+
+    return client;
+}
+
+export const getAllClients = async(data?: GetClientDto) => {
+    const { cedula, name, email } = data ?? {};
+    const orConditions: Prisma.ClientWhereInput[] = [];
+
+    if (cedula) {
+        orConditions.push({ cedula });
+    }
+
+    if (email) {
+        orConditions.push({ email });
+    }
+
+    if (name) {
+        orConditions.push({
+            name: {
+                contains: name,
+                mode: "insensitive"
+            }
+        });
+    }
+
+    const clients: ClientWithRelations[] =
+        orConditions.length > 0
+            ? await prisma.client.findMany({
+                where: {
+                    OR: orConditions
+                },
+                include: {
+                    bankAccounts: true,
+                    credentials: true
+                },
+                orderBy: {
+                    createdAt: "desc"
+                }
+            })
+            : await prisma.client.findMany({
+                include: {
+                    bankAccounts: true,
+                    credentials: true
+                },
+                orderBy: {
+                    createdAt: "desc"
+                }
+            });
 
      //desenccriptar credenciales
     for (const client of clients){
@@ -136,4 +197,123 @@ export const getAllClients = async() => {
         }
     }
     return clients;
+}
+
+export const updateClient = async (id: string, data: UpdateClientDto) => {
+    const {
+        name,
+        cedula,
+        address,
+        birthDate,
+        email,
+        phone,
+        phone2,
+        profileImage,
+        credentials,
+        bankAccounts,
+    } = data;
+
+    const existingClient = await prisma.client.findUnique({
+        where: { id },
+        include: {
+            bankAccounts: true,
+            credentials: true
+        }
+    });
+
+    if (!existingClient) {
+        throw new Error("Client not found");
+    }
+
+    const conflictingClient = await prisma.client.findFirst({
+        where: {
+            id: { not: id },
+            OR: [
+                { cedula },
+                { email }
+            ]
+        }
+    });
+
+    if (conflictingClient) {
+        throw new Error("Client already exists");
+    }
+
+    if (!isValidPhone(phone)) {
+        throw new Error("Invalid phone format (expected XXX-XXX-XXXX)");
+    }
+
+    if (phone2 && !isValidPhone(phone2)) {
+        throw new Error("Invalid secondary phone format");
+    }
+
+    const parsedBirthDate = new Date(birthDate);
+
+    if (Number.isNaN(parsedBirthDate.getTime())) {
+        throw new Error("Invalid birth date");
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        const updatedClient = await tx.client.update({
+            where: { id },
+            data: {
+                name,
+                cedula,
+                address,
+                birthDate: parsedBirthDate,
+                email,
+                phone,
+                phone2: phone2 || null,
+                profileImage: profileImage || null,
+            }
+        });
+
+        await tx.bankCredential.upsert({
+            where: { clientId: id },
+            update: {
+                username: credentials.username,
+                password: encrypt(credentials.password),
+            },
+            create: {
+                username: credentials.username,
+                password: encrypt(credentials.password),
+                clientId: id,
+            }
+        });
+
+        await tx.bankAccount.deleteMany({
+            where: { clientId: id }
+        });
+
+        if (bankAccounts.length > 0) {
+            await tx.bankAccount.createMany({
+                data: bankAccounts.map((account) => ({
+                    bankName: account.bankName,
+                    accountNumber: account.accountNumber,
+                    accountType: account.accountType,
+                    clientId: id,
+                }))
+            });
+        }
+
+        return updatedClient;
+    });
+
+    const updatedWithRelations = await prisma.client.findUnique({
+        where: { id: result.id },
+        include: {
+            bankAccounts: true,
+            credentials: true
+        }
+    });
+
+    if (!updatedWithRelations) {
+        throw new Error("Client not found");
+    }
+
+    if (updatedWithRelations.credentials) {
+        updatedWithRelations.credentials.password = decrypt(updatedWithRelations.credentials.password);
+    }
+
+    return updatedWithRelations;
 }

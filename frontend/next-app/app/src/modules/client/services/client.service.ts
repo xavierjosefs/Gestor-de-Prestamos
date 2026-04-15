@@ -1,0 +1,171 @@
+import { getAuthToken } from "@/app/src/modules/auth/services/session.service";
+import type {
+  ClientLoanRecord,
+  ClientRecord,
+  CreateClientPayload,
+  CreateClientResponse,
+  GetClientsResponse,
+  UpdateClientPayload,
+} from "../types/client.types";
+
+export async function createClientService(
+  data: CreateClientPayload
+): Promise<CreateClientResponse> {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+  }
+
+  const response = await fetch("http://localhost:8000/client/create", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  const payload = (await response.json()) as CreateClientResponse & {
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(payload.error || payload.message || "No se pudo crear el cliente.");
+  }
+
+  return payload;
+}
+
+export async function getClientsService(query?: string): Promise<GetClientsResponse> {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+  }
+
+  const trimmedQuery = query?.trim() ?? "";
+  const requestUrl = trimmedQuery
+    ? `http://localhost:8000/client?${new URLSearchParams({
+        [resolveSearchParam(trimmedQuery)]: trimmedQuery,
+      }).toString()}`
+    : "http://localhost:8000/client";
+
+  const response = await fetch(requestUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = (await response.json()) as GetClientsResponse & {
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(payload.error || payload.message || "No se pudieron cargar los clientes.");
+  }
+
+  return payload;
+}
+
+export async function getClientByIdService(clientId: string): Promise<ClientRecord> {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+  }
+
+  const response = await fetch(`http://localhost:8000/client/${clientId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = (await response.json()) as {
+    message?: string;
+    error?: string;
+    data?: ClientRecord;
+  };
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error || payload.message || "No se pudo cargar el cliente.");
+  }
+
+  return payload.data;
+}
+
+export async function getClientLoansService(clientId: string): Promise<ClientLoanRecord[]> {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+  }
+
+  const response = await fetch(
+    `http://localhost:8000/loan?${new URLSearchParams({ clientId }).toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  const payload = (await response.json()) as {
+    message?: string;
+    error?: string;
+    data?: ClientLoanRecord[];
+  };
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error || payload.message || "No se pudieron cargar los prestamos.");
+  }
+
+  return payload.data;
+}
+
+export async function updateClientService(
+  clientId: string,
+  data: UpdateClientPayload
+): Promise<ClientRecord> {
+  const token = getAuthToken();
+
+  if (!token) {
+    throw new Error("Tu sesion expiro. Inicia sesion nuevamente.");
+  }
+
+  const response = await fetch(`http://localhost:8000/client/${clientId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
+  });
+
+  const payload = (await response.json()) as {
+    message?: string;
+    error?: string;
+    data?: ClientRecord;
+  };
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error || payload.message || "No se pudo actualizar el cliente.");
+  }
+
+  return payload.data;
+}
+
+function resolveSearchParam(query: string) {
+  if (query.includes("@")) {
+    return "email";
+  }
+
+  if (/^[\d-]+$/.test(query)) {
+    return "cedula";
+  }
+
+  return "name";
+}

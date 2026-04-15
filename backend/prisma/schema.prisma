@@ -27,27 +27,29 @@ model PreUser {
 }
 
 model Client {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
   name      String
   cedula    String   @unique
   address   String
   birthDate DateTime
 
-  email     String   @unique
-  phone     String
-  phone2    String?
+  email  String  @unique
+  phone  String
+  phone2 String?
 
   profileImage String?
 
   createdAt DateTime @default(now())
 
-  bankAccounts  BankAccount[]
-  credentials   BankCredential?
+  bankAccounts BankAccount[]
+  credentials  BankCredential?
+
+  loans Loan[]
 }
 
 model BankAccount {
-  id            String @id @default(uuid())
+  id String @id @default(uuid())
 
   bankName      String
   accountNumber String
@@ -60,11 +62,65 @@ model BankAccount {
 }
 
 model BankCredential {
-  id        String @id @default(uuid())
+  id String @id @default(uuid())
 
-  username  String
-  password  String
+  username String
+  password String
 
   clientId String @unique
   client   Client @relation(fields: [clientId], references: [id])
+}
+
+model Loan {
+  id String @id @default(uuid())
+
+  principalAmount  Float
+  remainingBalance Float
+
+  interestRate Float
+
+  frequency PaymentFrequency // MONTHLY o BIWEEKLY
+
+  startDate DateTime
+
+  lastPaymentDate DateTime
+  nextDueDate     DateTime
+
+  status LoanStatus @default(ACTIVE)
+
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  payments Payment[]
+
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id String @id @default(uuid())
+
+  amount Float
+
+  interestPaid  Float
+  principalPaid Float
+
+  remainingBalance Float
+
+  daysCalculated Int
+
+  paymentDate DateTime @default(now())
+
+  loanId String
+  loan   Loan   @relation(fields: [loanId], references: [id])
+}
+
+enum PaymentFrequency {
+  MONTHLY // 30 días
+  BIWEEKLY // 15 días
+}
+
+enum LoanStatus {
+  ACTIVE
+  PAID
+  LATE
 }
